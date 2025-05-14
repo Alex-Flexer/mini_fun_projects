@@ -3,19 +3,25 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from dotenv import dotenv_values
+
 app = FastAPI()
 
 app.mount(
     path="/static",
-    app=StaticFiles(directory="./static", html=True),
+    app=StaticFiles(directory="/root/main_folder/mini_fun_projects/summer_counter/static", html=True),
     name="static"
 )
 
 
 @app.get("/")
 async def send_home_page() -> FileResponse:
-    return FileResponse("./static/index.html")
+    return FileResponse("/root/main_folder/mini_fun_projects/summer_counter/static/index.html")
 
 
 if __name__ == '__main__':
-    uvicorn.run('main:app', host="127.0.0.1", port=1201, reload=True)
+    config = dotenv_values("/root/main_folder/mini_fun_projects/summer_counter/.env")
+    PORT = int(config["PORT"])
+    HOST = config["HOST"]
+
+    uvicorn.run('main:app', host=HOST, port=PORT, reload=True)
