@@ -9,18 +9,18 @@ app = FastAPI()
 
 app.mount(
     path="/static",
-    app=StaticFiles(directory="10th_grade_project_website/static", html=True),
+    app=StaticFiles(directory="/root/main_folder/mini_fun_projects/10th_grade_project_website/static", html=True),
     name="static"
 )
 
 
 @app.get("/")
 async def send_home_page() -> FileResponse:
-    return FileResponse("10th_grade_project_website/static/index.html")
+    return FileResponse("/root/main_folder/mini_fun_projects/10th_grade_project_website/static/index.html")
 
 
 if __name__ == '__main__':
-    config = dotenv_values("10th_grade_project_website/.env")
+    config = dotenv_values("/root/main_folder/mini_fun_projects/10th_grade_project_website/.env")
     PORT = int(config["PORT"])
     HOST = config["HOST"]
 
