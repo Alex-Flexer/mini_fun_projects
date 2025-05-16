@@ -2,6 +2,20 @@ import socket
 from threading import Thread
 from typing import Callable
 import re
+from http import HTTPStatus
+from json import dumps
+from os import walk
+from os.path import join
+from mimetypes import guess_file_type
+
+
+RAW_RESPONSE_PATTER =\
+    """HTTP/1.1 {} {}\r
+Content-Type: {}; charset=utf-8\r
+Connection: close\r
+{}
+
+{}"""
 
 
 class Server:
@@ -9,9 +23,9 @@ class Server:
         self.host = host
         self.port = port
         self.handlers = {}
-    
+
     def bind_handlers(self, handlers: dict[tuple[str, str], Callable]):
-        self.handlers = handlers
+        self.handlers.update(handlers)
 
     def _parse_body(self, data: str) -> dict:
         body_match = re.search(r"\r?\n\r?\n(.*)$", data, re.DOTALL)
@@ -26,6 +40,19 @@ class Server:
 
         return res
 
+    def _parse_headers(self, data: str) -> dict:
+        headers = {}
+        lines = data.strip().split('\n')
+
+        for line in lines[1:]:
+            if ':' in line:
+                key, value = line.split(':', 1)
+                headers[key.strip()] = value.strip()
+            else:
+                break
+
+        return headers
+
     def _request_handler(self, conn, addr):
         with conn:
             print(f"Connected by {addr}\n")
@@ -36,21 +63,37 @@ class Server:
             if match:
                 http_method = match.group(1)
                 path = match.group(2)
+
+                headers = self._parse_headers(data)
                 body = self._parse_body(data)
+
                 print(f"Method: {http_method}, Path: {path}\n")
+                print(f"Headers: {headers}")
                 print(f"Body: {body}\n")
             else:
                 print("Invalid HTTP request")
-                
 
             print(f"Received data:\n{data}")
 
-            response = b"HTTP/1.1 200 OK\r\n"
-            response += b"Content-Type: text/html; charset=utf-8\r\n"
-            response += b"Connection: close\r\n"
-            response += b"\r\n"
-            response += self.handlers.get((http_method, path), lambda: "404 Not Found")().encode('utf-8')
-            conn.sendall(response)
+            handler: Callable = self.handlers.get(
+                (http_method, path), lambda: TextResponse(status=404))
+            args_cnt = handler.__code__.co_argcount
+
+            if args_cnt > 1:
+                raise ValueError(f"Handler must get 0 or 1 argument, not {args_cnt}")
+
+            response: Response = handler(Request(headers, body)) if args_cnt == 1 else handler()
+            conn.sendall(response.response)
+
+    def mount(self, dir_path: str,) -> None:
+        files_paths = []
+        for path, _, files in walk(dir_path):
+            files_paths += [join(path, file) for file in files]
+
+        self.bind_handlers({
+            ("GET", file_path.lstrip('.')): lambda: FileResponse(file_path)
+            for file_path in files_paths
+        })
 
     def run(self):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -65,8 +108,46 @@ class Server:
 class Request:
     body: dict
     headers: dict
-    
+
     def __init__(self, headers: dict, body: dict = {}):
         self.headers = headers
         self.body = body
 
+
+class Response:
+    response: str
+
+    def _dict2headers(self, headers: dict) -> str:
+        return "\n".join([f"{key}: {value}" for key, value in headers.items()])
+
+    def __init__(self, resp_type: str, status: int, headers: str = "", data: str = "") -> None:
+        self.response = RAW_RESPONSE_PATTER.format(
+            status,
+            HTTPStatus(status).description,
+            resp_type,
+            headers,
+            data
+        ).encode('utf-8')
+
+        print(self.response.decode())
+
+
+class TextResponse(Response):
+    def __init__(self, data: str = "", headers: dict = {}, status: int = 200) -> None:
+        headers = super()._dict2headers(headers)
+        super().__init__("text/html", status, headers, data)
+
+
+class JsonResponse(Response):
+    def __init__(self, data: dict = {}, headers: dict = {}, status: int = 200) -> None:
+        headers = super()._dict2headers(headers)
+        json = dumps(data, ensure_ascii=False)
+        super().__init__("application/x-www-form-urlencoded", status, headers, json)
+
+
+class FileResponse(Response):
+    def __init__(self, file_path: str, headers: dict = {}, status: int = 200) -> None:
+        headers = super()._dict2headers(headers)
+        with open(file_path, 'r', encoding="utf-8") as file:
+            data = file.read()
+        super().__init__(guess_file_type(file_path)[0], status, headers, data)
