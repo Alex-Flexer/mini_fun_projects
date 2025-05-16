@@ -55,7 +55,6 @@ class Server:
 
     def _request_handler(self, conn, addr):
         with conn:
-            print(f"Connected by {addr}\n")
             data: str = conn.recv(1024).decode('utf-8')
 
             match = re.match(r"^(GET|POST|PUT|DELETE|HEAD|OPTIONS|PATCH)\s+([^?\s]+)", data)
@@ -76,7 +75,9 @@ class Server:
             print(f"Received data:\n{data}")
 
             handler: Callable = self.handlers.get(
-                (http_method, path), lambda: TextResponse(status=404))
+                (http_method, path), lambda: TextResponse(status=404)
+            )
+
             args_cnt = handler.__code__.co_argcount
 
             if args_cnt > 1:
@@ -90,8 +91,10 @@ class Server:
         for path, _, files in walk(dir_path):
             files_paths += [join(path, file) for file in files]
 
+        lambda_maker = lambda x: lambda: x
+
         self.bind_handlers({
-            ("GET", file_path.lstrip('.')): lambda: FileResponse(file_path)
+            ("GET", file_path.lstrip('.')): lambda_maker(FileResponse(file_path))
             for file_path in files_paths
         })
 
@@ -129,8 +132,6 @@ class Response:
             data
         ).encode('utf-8')
 
-        print(self.response.decode())
-
 
 class TextResponse(Response):
     def __init__(self, data: str = "", headers: dict = {}, status: int = 200) -> None:
@@ -142,7 +143,7 @@ class JsonResponse(Response):
     def __init__(self, data: dict = {}, headers: dict = {}, status: int = 200) -> None:
         headers = super()._dict2headers(headers)
         json = dumps(data, ensure_ascii=False)
-        super().__init__("application/x-www-form-urlencoded", status, headers, json)
+        super().__init__("application/json", status, headers, json)
 
 
 class FileResponse(Response):
