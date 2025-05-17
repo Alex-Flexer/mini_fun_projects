@@ -6,16 +6,16 @@ from http import HTTPStatus
 from json import dumps
 from os import walk
 from os.path import join
-from mimetypes import guess_file_type
+from mimetypes import guess_file_type, guess_type
 
 
 RAW_RESPONSE_PATTER =\
-    """HTTP/1.1 {} {}\r
-Content-Type: {}; charset=utf-8\r
+    b"""HTTP/1.1 %b %b\r
+Content-Type: %b\r
 Connection: close\r
-{}
+%b
 
-{}"""
+%b"""
 
 
 class Server:
@@ -65,17 +65,12 @@ class Server:
 
                 headers = self._parse_headers(data)
                 body = self._parse_body(data)
-
-                print(f"Method: {http_method}, Path: {path}\n")
-                print(f"Headers: {headers}")
-                print(f"Body: {body}\n")
             else:
-                print("Invalid HTTP request")
-
-            print(f"Received data:\n{data}")
+                print(data)
+                raise ValueError("Invalid HTTP request")
 
             handler: Callable = self.handlers.get(
-                (http_method, path), lambda: TextResponse(status=404)
+                (http_method, path), lambda: FileResponse("./static/forbidden/page.html", status=404)
             )
 
             args_cnt = handler.__code__.co_argcount
@@ -123,14 +118,14 @@ class Response:
     def _dict2headers(self, headers: dict) -> str:
         return "\n".join([f"{key}: {value}" for key, value in headers.items()])
 
-    def __init__(self, resp_type: str, status: int, headers: str = "", data: str = "") -> None:
-        self.response = RAW_RESPONSE_PATTER.format(
-            status,
-            HTTPStatus(status).description,
-            resp_type,
-            headers,
+    def __init__(self, resp_type: str, status: int, headers: str = "", data: bytes = b"") -> None:
+        self.response = RAW_RESPONSE_PATTER % (
+            str(status).encode("utf-8"),
+            HTTPStatus(status).description.encode("utf-8"),
+            resp_type.encode("utf-8"),
+            headers.encode("utf-8"),
             data
-        ).encode('utf-8')
+        )
 
 
 class TextResponse(Response):
@@ -143,12 +138,15 @@ class JsonResponse(Response):
     def __init__(self, data: dict = {}, headers: dict = {}, status: int = 200) -> None:
         headers = super()._dict2headers(headers)
         json = dumps(data, ensure_ascii=False)
-        super().__init__("application/json", status, headers, json)
+        super().__init__("application/x-www-form-urlencoded", status, headers, json)
 
 
 class FileResponse(Response):
     def __init__(self, file_path: str, headers: dict = {}, status: int = 200) -> None:
-        headers = super()._dict2headers(headers)
-        with open(file_path, 'r', encoding="utf-8") as file:
+        with open(file_path, 'rb') as file:
             data = file.read()
+
+        headers["Content-Length"] = str(len(data))
+        headers = super()._dict2headers(headers)
+
         super().__init__(guess_file_type(file_path)[0], status, headers, data)
